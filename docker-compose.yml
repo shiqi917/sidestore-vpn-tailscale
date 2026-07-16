@@ -1,0 +1,23 @@
+services:
+  sidestore-vpn:
+    container_name: sidestore-vpn
+    build: .
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./tailscale-state:/var/lib/tailscale
+    sysctls:
+      - net.ipv4.ip_forward=1
+    environment:
+      # Put TS_AUTHKEY and NODE_ADDR in .env (see .env.example)
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      - NODE_ADDR=${NODE_ADDR}
+      - TS_HOSTNAME=sidestore-vpn
+      # --reset: apply exactly this config on every boot (ignore stale state prefs)
+      # --snat-subnet-routes=false: REQUIRED — tailscale's MASQUERADE rewrites
+      #   the source address before the reflector sees the packet, which
+      #   bounces reflected traffic back into the container itself
+      - TS_EXTRA_ARGS=--reset --snat-subnet-routes=false
+    restart: unless-stopped

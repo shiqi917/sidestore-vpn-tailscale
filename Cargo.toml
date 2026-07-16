@@ -1,0 +1,10 @@
+[package]
+name = "sidestore-vpn"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tun = "0.8.2"
+smoltcp = { version = "0.12.0", features = ["proto-ipv4"] }
+clap = { version = "4.0", features = ["derive", "env"] }
+ctrlc = "3.4"
