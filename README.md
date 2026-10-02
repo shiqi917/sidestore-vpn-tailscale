@@ -32,7 +32,7 @@ Two extra gotchas discovered along the way:
 ## How it works
 
 ```
-device:P  →  NODE_ADDR:Q       (minimuxer dials <device IP>+1)
+device:P  →  NODE_ADDR:Q       (SideStore dials NODE_ADDR)
    DNAT   →  10.7.0.1:Q        (into the reflector TUN)
   reflect →  swap src/dst      (58-line Rust program)
    SNAT   →  NODE_ADDR:P  →  device:Q   (back to the device's own
@@ -54,30 +54,45 @@ needs to install/refresh apps.
 
 ## Setup
 
-1. Find your iOS device's Tailscale IP (Tailscale app → device). Your
-   reflect address is that IP **+ 1**: e.g. `100.101.102.103` → `100.101.102.104`.
-
-2. ```sh
-   cp .env.example .env      # fill in TS_AUTHKEY and NODE_ADDR
+1. ```sh
+   cp .env.example .env      # fill in TS_AUTHKEY
    docker compose up -d --build
    ```
+   The container picks up its own Tailscale IP automatically
+   (`docker logs sidestore-vpn | grep "node address"`). This is the
+   **reflect address** — call it `NODE_ADDR`. No `+1`, no editing the
+   machine IP in the admin console.
 
-3. In the [Tailscale admin console](https://login.tailscale.com/admin/machines),
-   find the new `sidestore-vpn` machine → **Edit machine IPv4 address** →
-   set it to the same value as `NODE_ADDR`.
+2. (Recommended) On your router, forward **UDP 41642** to the Docker host.
+   This lets peers connect directly instead of through a DERP relay.
+   Check with `tailscale ping <NODE_ADDR>`: it should say
+   `via <public IP>:41642`, not `via DERP`.
 
-4. Verify: `ping <NODE_ADDR>` from any tailnet device should reply.
-   On the iOS device (Wi-Fi + Tailscale on), SideStore → Settings →
-   Health Check should show Tunnel Peer IP = `NODE_ADDR` and
-   Device Reachability green. Refresh away.
+3. On the iOS device: SideStore → Settings → **Connection Config** →
+   turn **Use Local VPN off** (Remote Endpoint mode) → **Device IP** =
+   `NODE_ADDR`, leave RemotePair Port empty → Confirm.
 
-## If your device's Tailscale IP changes
+4. Verify: on the iOS device (Wi-Fi + Tailscale on), SideStore → Settings →
+   Health Check should show Device Reachability green. Refresh away.
 
-The reflect address is derived from the device IP, so update both:
-`NODE_ADDR` in `.env` **and** the machine IPv4 in the admin console,
-then `docker compose up -d --build`.
+> **Why Remote Endpoint, not Use Local VPN?** On SideStore 0.7.0
+> (LiveContainer 3.8.10 nightly), Local VPN mode never reached the device over
+> Tailscale (Health Check: `NoDevice … DeviceEndpointNotInitialized`), even with
+> a direct connection — while Remote Endpoint mode with the same IP worked right
+> away. Remote Endpoint also means the reflector no longer has to sit at
+> `<device IP> + 1`. Raising Developer Options → Device (TCP) Probe Timeout to
+> 2000 ms helps on a slow/relayed path.
+>
+> Still want Local VPN mode? Set `NODE_ADDR` in `.env` to
+> `<device Tailscale IP> + 1` and set the same IPv4 on this machine in the
+> [admin console](https://login.tailscale.com/admin/machines).
 
-Multiple iOS devices need one reflector each (one node per `<IP>+1`).
+## Device IP changes / multiple devices
+
+The reflector sends every packet back to whoever sent it, so it doesn't care
+about the device's IP: nothing to update when it changes. Multiple iOS devices
+should be able to share one reflector (each sets Device IP = `NODE_ADDR`) —
+not tested yet.
 
 ## Credits
 

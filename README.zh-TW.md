@@ -29,7 +29,7 @@ SideStore 撥的是「你裝置的 Tailscale IP + 1」,`10.7.0.1` 再也不會�
 ## 運作原理
 
 ```
-device:P  →  NODE_ADDR:Q       (minimuxer 撥 <裝置IP>+1)
+device:P  →  NODE_ADDR:Q       (SideStore 撥 NODE_ADDR)
    DNAT   →  10.7.0.1:Q        (導進反射器 TUN)
   反射    →  src/dst 對調      (58 行 Rust)
    SNAT   →  NODE_ADDR:P  →  device:Q   (回到裝置自己的
@@ -49,30 +49,40 @@ iOS 裝置最終是在跟自己對話——這正是 SideStore 安裝/刷新所�
 
 ## 安裝
 
-1. 查你 iOS 裝置的 Tailscale IP(Tailscale app 裡看),反射位址 =
-   該 IP **+ 1**:例如 `100.101.102.103` → `100.101.102.104`
-
-2. ```sh
-   cp .env.example .env      # 填入 TS_AUTHKEY 和 NODE_ADDR
+1. ```sh
+   cp .env.example .env      # 填入 TS_AUTHKEY
    docker compose up -d --build
    ```
+   容器會自己抓本節點的 Tailscale IP
+   (`docker logs sidestore-vpn | grep "node address"`),
+   這就是**反射位址** `NODE_ADDR`。不用 +1,也不用到管理頁改機器 IP。
 
-3. 到 [Tailscale 管理頁](https://login.tailscale.com/admin/machines),
-   找到新出現的 `sidestore-vpn` 機器 → **Edit machine IPv4 address** →
-   改成跟 `NODE_ADDR` 一樣的值
+2. (建議)在路由器把 **UDP 41642** 轉發到跑 Docker 的主機,
+   其他節點才能直連,不用繞 DERP 中繼。用 `tailscale ping <NODE_ADDR>`
+   確認:應顯示 `via <公網IP>:41642`,而不是 `via DERP`。
 
-4. 驗證:任一 tailnet 裝置 `ping <NODE_ADDR>` 應有回應。
-   iOS 裝置上(Wi-Fi + Tailscale 開)SideStore → Settings →
-   Health Check:Tunnel Peer IP 應為 `NODE_ADDR`、
-   Device Reachability 綠燈。開刷。
+3. iOS 裝置上:SideStore → Settings → **Connection Config** →
+   **Use Local VPN 關掉**(Remote Endpoint 模式)→ **Device IP** 填
+   `NODE_ADDR`,RemotePair Port 留空 → Confirm。
 
-## 裝置的 Tailscale IP 變了怎麼辦
+4. 驗證:iOS 裝置上(Wi-Fi + Tailscale 開)SideStore → Settings →
+   Health Check:Device Reachability 綠燈。開刷。
 
-反射位址是從裝置 IP 推導的,兩處要同步改:
-`.env` 的 `NODE_ADDR` **加上**管理頁的機器 IPv4,
-然後 `docker compose up -d --build`。
+> **為什麼用 Remote Endpoint,不用 Use Local VPN?** SideStore 0.7.0
+> (LiveContainer 3.8.10 nightly)的 Local VPN 模式透過 Tailscale 一直連不到
+> 裝置(Health Check:`NoDevice … DeviceEndpointNotInitialized`),就算已經
+> 直連也一樣;同一個 IP 改用 Remote Endpoint 模式則馬上通。用 Remote
+> Endpoint 也代表反射器不必再站在「裝置 IP + 1」。路徑慢或走中繼時,
+> 把 Developer Options → Device (TCP) Probe Timeout 調到 2000 ms 也有幫助。
+>
+> 還是想用 Local VPN 模式?在 `.env` 設 `NODE_ADDR` = 裝置 Tailscale IP + 1,
+> 並到[管理頁](https://login.tailscale.com/admin/machines)把本機 IPv4 改成同一個值。
 
-多台 iOS 裝置就各跑一個反射器(一台一個 `<IP>+1` 節點)。
+## 裝置 IP 變了 / 多台裝置
+
+反射器只是把封包原路送回發送者,不在乎裝置的 IP:IP 變了不用改任何東西。
+多台 iOS 裝置應該可以共用同一個反射器(各自把 Device IP 填 `NODE_ADDR`)——
+尚未實測。
 
 ## 致謝
 

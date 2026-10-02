@@ -11,13 +11,20 @@ services:
     sysctls:
       - net.ipv4.ip_forward=1
     environment:
-      # Put TS_AUTHKEY and NODE_ADDR in .env (see .env.example)
+      # Put TS_AUTHKEY in .env (see .env.example); NODE_ADDR is optional
       - TS_AUTHKEY=${TS_AUTHKEY}
       - NODE_ADDR=${NODE_ADDR}
       - TS_HOSTNAME=sidestore-vpn
+      # Fixed UDP port (overrides the Dockerfile default, keeps --verbose=-1).
+      # Without it the extra Docker NAT layer usually blocks direct connections
+      # and everything goes through a DERP relay, which is slow enough to fail
+      # SideStore's device probe. 41642 avoids a host tailscaled on 41641.
+      - TS_TAILSCALED_EXTRA_ARGS=--verbose=-1 --port=41642
       # --reset: apply exactly this config on every boot (ignore stale state prefs)
       # --snat-subnet-routes=false: REQUIRED — tailscale's MASQUERADE rewrites
       #   the source address before the reflector sees the packet, which
       #   bounces reflected traffic back into the container itself
       - TS_EXTRA_ARGS=--reset --snat-subnet-routes=false
+    ports:
+      - "41642:41642/udp"
     restart: unless-stopped
